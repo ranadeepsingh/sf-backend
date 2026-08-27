@@ -59,3 +59,19 @@ def test_photo_schema_upgrade_preserves_a_valid_legacy_data_url():
         assert contact.photo_data == image_bytes
         assert contact.photo_content_type == "image/png"
         assert contact.photo_url == "/api/v1/contacts/1/photo"
+
+    newer_photo = b"newly-uploaded-photo"
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE contacts SET photo_data = :photo_data, photo_content_type = 'image/png' "
+                "WHERE id = 1"
+            ),
+            {"photo_data": newer_photo},
+        )
+    upgrade_contact_photo_schema(engine)
+
+    with Session(engine) as session:
+        contact = session.get(Contact, 1)
+        assert contact is not None
+        assert contact.photo_data == newer_photo

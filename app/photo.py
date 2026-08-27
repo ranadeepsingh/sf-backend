@@ -4,6 +4,7 @@ from PIL import Image, UnidentifiedImageError
 
 MAX_IMAGE_BYTES = 2 * 1024 * 1024
 MAX_IMAGE_PIXELS = 20_000_000
+MAX_MULTIPART_BODY_BYTES = MAX_IMAGE_BYTES + 64 * 1024
 SUPPORTED_MEDIA_TYPES = {
     "JPEG": "image/jpeg",
     "PNG": "image/png",
@@ -31,6 +32,8 @@ def validate_image_bytes(data: bytes, *, declared_content_type: str) -> str:
             image_format = image.format
             width, height = image.size
             image.verify()
+    except Image.DecompressionBombError as error:
+        raise ImageValidationError("Photo dimensions exceed the 20 megapixel limit.") from error
     except (UnidentifiedImageError, OSError, SyntaxError) as error:
         raise ImageValidationError("Photo is not a valid image.") from error
 

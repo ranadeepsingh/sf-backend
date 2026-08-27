@@ -109,7 +109,7 @@ def _migrate_legacy_data_urls(connection, columns: set[str]) -> None:
         connection.execute(
             text(
                 "UPDATE contacts SET photo_data = :photo_data, photo_content_type = :content_type "
-                "WHERE id = :id"
+                "WHERE id = :id AND photo_data IS NULL"
             ),
             {"id": row["id"], "photo_data": data, "content_type": content_type},
         )

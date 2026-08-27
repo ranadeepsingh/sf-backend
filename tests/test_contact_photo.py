@@ -3,6 +3,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from app.photo import MAX_IMAGE_BYTES, MAX_MULTIPART_BODY_BYTES
+
 BASE = "/api/v1/contacts"
 RANA_IMAGE = Path(__file__).parent / "fixtures" / "Rana.png"
 
@@ -84,6 +86,24 @@ def test_photo_upload_rejects_unsafe_or_ambiguous_files(client, payload):
     assert too_large.status_code == 413
     assert "2 MiB" in too_large.json()["detail"]
 
+    body_too_large = client.put(
+        url,
+        files={"file": ("body-too-large.png", b"x" * (MAX_MULTIPART_BODY_BYTES + 1), "image/png")},
+    )
+    assert body_too_large.status_code == 413
+    assert "request exceeds" in body_too_large.json()["detail"]
+
+
+def test_photo_upload_handles_pillow_bomb_errors(client, payload, monkeypatch):
+    contact_id = _create_contact(client, payload)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+
+    response = client.put(
+        f"{BASE}/{contact_id}/photo",
+        files={"file": ("Rana.png", RANA_IMAGE.read_bytes(), "image/png")},
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Photo dimensions exceed the 20 megapixel limit."
 
 def test_contact_json_rejects_implicit_photo_updates(client, payload):
     with_photo = client.post(BASE, json={**payload, "photo": "data:image/png;base64,abc"})

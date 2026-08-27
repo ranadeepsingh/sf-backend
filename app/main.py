@@ -1,16 +1,20 @@
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app import __version__
 from app.config import get_settings
 from app.crud import count_contacts
 from app.database import engine, get_db, init_db
+from app.photo import MAX_MULTIPART_BODY_BYTES
 from app.routers import contacts
 from app.schemas import HealthResponse, RootResponse
 from app.seed import seed_if_empty
@@ -56,6 +60,53 @@ TAGS_METADATA = [
         "description": "Service discovery and health checks. Useful for probes and smoke tests.",
     },
 ]
+PHOTO_UPLOAD_PATH = re.compile(r"^/api/v1/contacts/\d+/photo$")
+
+
+class PhotoUploadBodyLimitMiddleware:
+    """Reject oversized multipart bodies before Starlette can spool uploaded files."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["method"] != "PUT" or not PHOTO_UPLOAD_PATH.fullmatch(scope["path"]):
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope["headers"])
+        content_length = headers.get(b"content-length")
+        if content_length is not None and content_length.isdigit() and int(content_length) > MAX_MULTIPART_BODY_BYTES:
+            await self._too_large(scope, receive, send)
+            return
+
+        messages: list[Message] = []
+        received = 0
+        while True:
+            message = await receive()
+            messages.append(message)
+            if message["type"] != "http.request":
+                break
+            received += len(message.get("body", b""))
+            if received > MAX_MULTIPART_BODY_BYTES:
+                await self._too_large(scope, receive, send)
+                return
+            if not message.get("more_body", False):
+                break
+
+        async def replay_receive() -> Message:
+            if messages:
+                return messages.pop(0)
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await self.app(scope, replay_receive, send)
+
+    @staticmethod
+    async def _too_large(scope: Scope, receive: Receive, send: Send) -> None:
+        await JSONResponse(
+            status_code=413,
+            content={"detail": "Photo upload request exceeds the allowed 2 MiB file limit."},
+        )(scope, receive, send)
 
 
 @asynccontextmanager
@@ -88,6 +139,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(PhotoUploadBodyLimitMiddleware)
 
 app.include_router(contacts.router)
 
