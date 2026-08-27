@@ -64,6 +64,10 @@ def test_photo_upload_rejects_unsafe_or_ambiguous_files(client, payload):
     contact_id = _create_contact(client, payload)
     url = f"{BASE}/{contact_id}/photo"
 
+    missing_file = client.put(url)
+    assert missing_file.status_code == 422
+    assert missing_file.json()["detail"][0]["loc"] == ["body", "file"]
+
     unsupported = client.put(url, files={"file": ("photo.gif", b"GIF89a", "image/gif")})
     assert unsupported.status_code == 415
     assert "image/jpeg, image/png, or image/webp" in unsupported.json()["detail"]

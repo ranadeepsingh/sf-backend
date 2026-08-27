@@ -125,7 +125,8 @@ the multipart field named `file`, replaces any previous photo, and returns the
 updated contact. It accepts only JPEG, PNG, and WebP files up to 2 MiB. The
 declared part `Content-Type` must match the verified image bytes; malformed
 images return `422`, unsupported or mismatched types return `415`, and
-oversize files return `413`.
+oversize files return `413`. Omitting the required multipart `file` field
+returns FastAPI's standard `422` request-validation response.
 
 `GET` on `photo_url` returns the original bytes and stored media type.
 `DELETE /api/v1/contacts/{id}/photo` removes the photo, is idempotent for an

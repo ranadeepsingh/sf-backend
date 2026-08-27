@@ -35,7 +35,7 @@ PHOTO_NOT_FOUND = {
 }
 INVALID_PHOTO = {
     "model": ErrorResponse,
-    "description": "The uploaded file is unsupported, invalid, or exceeds a safety limit.",
+    "description": "The file is missing, unsupported, invalid, or exceeds a safety limit.",
 }
 
 
