@@ -2,13 +2,6 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator
 
-from app.photo import (
-    PHOTO_DESCRIPTION,
-    PHOTO_EXAMPLE,
-    PHOTO_UPDATE_DESCRIPTION,
-    PhotoDataUrl,
-)
-
 
 class ContactBase(BaseModel):
     """Fields shared by every contact request and response."""
@@ -51,11 +44,6 @@ class ContactBase(BaseModel):
         description="Role held at the company.",
         examples=["Mathematician"],
     )
-    photo: PhotoDataUrl | None = Field(
-        default=None,
-        description=PHOTO_DESCRIPTION,
-        examples=[PHOTO_EXAMPLE],
-    )
     address: str | None = Field(
         default=None,
         max_length=300,
@@ -90,7 +78,6 @@ _FULL_EXAMPLE = {
     "phone": "+1-415-555-0101",
     "company": "Analytical Engines",
     "job_title": "Mathematician",
-    "photo": PHOTO_EXAMPLE,
     "address": "1 Market St, Suite 400",
     "city": "San Francisco",
     "state": "CA",
@@ -141,11 +128,6 @@ class ContactUpdate(BaseModel):
     phone: str | None = Field(default=None, max_length=40, description="New phone number.")
     company: str | None = Field(default=None, max_length=200, description="New company.")
     job_title: str | None = Field(default=None, max_length=200, description="New job title.")
-    photo: PhotoDataUrl | None = Field(
-        default=None,
-        description=PHOTO_UPDATE_DESCRIPTION,
-        examples=[PHOTO_EXAMPLE],
-    )
     address: str | None = Field(default=None, max_length=300, description="New street address.")
     city: str | None = Field(default=None, max_length=120, description="New city.")
     state: str | None = Field(default=None, max_length=120, description="New state or region.")

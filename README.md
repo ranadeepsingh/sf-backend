@@ -108,27 +108,10 @@ also read):
 
 ```
 first_name, last_name, email, phone, company, job_title,
-photo, address, city, state, postal_code, country, notes
+address, city, state, postal_code, country, notes
 ```
 
 Responses add `id`, `full_name`, `created_at`, and `updated_at` (UTC).
-
-### Contact photos
-
-`photo` is either `null` or a canonical base64 data URL containing a JPEG, PNG,
-or WebP image. The decoded image may be at most 2 MiB; malformed or
-non-canonical base64, unsupported formats (including SVG), and content that does
-not match its declared MIME type are rejected with `422`.
-
-```json
-{
-  "photo": "data:image/png;base64,iVBORw0KGgo..."
-}
-```
-
-`PATCH` leaves the current photo untouched when `photo` is omitted and removes it
-when `photo` is explicitly `null`. `PUT` replaces the whole contact, so clients
-editing a contact must include its existing `photo` to preserve it.
 
 ### List query parameters
 
