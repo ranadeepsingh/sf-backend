@@ -1,0 +1,10 @@
+from typing import Literal
+
+ADDRESS_TYPES = ("Home", "Work", "Other")
+AddressType = Literal[*ADDRESS_TYPES]
+
+ADDRESS_MAX_LENGTH = 300
+CITY_MAX_LENGTH = 120
+STATE_MAX_LENGTH = 120
+POSTAL_CODE_MAX_LENGTH = 20
+COUNTRY_MAX_LENGTH = 120

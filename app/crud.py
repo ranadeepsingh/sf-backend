@@ -1,8 +1,8 @@
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Contact
-from app.schemas import ContactCreate, ContactReplace, ContactUpdate
+from app.models import Address, Contact
+from app.schemas import AddressInput, ContactCreate, ContactReplace, ContactUpdate
 
 SORTABLE_FIELDS = ("id", "first_name", "last_name", "email", "company", "created_at", "updated_at")
 
@@ -61,27 +61,50 @@ def list_contacts(
 
 def create_contact(db: Session, payload: ContactCreate) -> Contact:
     data = payload.model_dump()
+    addresses = data.pop("addresses")
     data["email"] = _normalize_email(data["email"])
     contact = Contact(**data)
+    _replace_addresses(contact, addresses)
     db.add(contact)
-    db.commit()
-    db.refresh(contact)
-    return contact
+    return _commit_contact(db, contact)
 
 
 def replace_contact(db: Session, contact: Contact, payload: ContactReplace) -> Contact:
-    for field, value in payload.model_dump().items():
+    data = payload.model_dump()
+    addresses = data.pop("addresses")
+    for field, value in data.items():
         setattr(contact, field, _normalize_email(value) if field == "email" else value)
-    db.commit()
-    db.refresh(contact)
-    return contact
+    _replace_addresses(contact, addresses)
+    return _commit_contact(db, contact)
 
 
 def update_contact(db: Session, contact: Contact, payload: ContactUpdate) -> Contact:
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    addresses = data.pop("addresses", ...)
+    for field, value in data.items():
         setattr(contact, field, _normalize_email(value) if field == "email" else value)
-    db.commit()
-    db.refresh(contact)
+    if addresses is not ...:
+        _replace_addresses(contact, addresses)
+    return _commit_contact(db, contact)
+
+
+def _replace_addresses(
+    contact: Contact, addresses: list[AddressInput] | list[dict] | None
+) -> None:
+    contact.addresses = [
+        Address(**(item.model_dump() if isinstance(item, AddressInput) else item))
+        for item in (addresses or [])
+    ]
+
+
+def _commit_contact(db: Session, contact: Contact) -> Contact:
+    try:
+        db.flush()
+        db.refresh(contact)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return contact
 
 
@@ -102,5 +125,9 @@ def remove_contact_photo(db: Session, contact: Contact) -> None:
 
 
 def delete_contact(db: Session, contact: Contact) -> None:
-    db.delete(contact)
-    db.commit()
+    try:
+        db.delete(contact)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise

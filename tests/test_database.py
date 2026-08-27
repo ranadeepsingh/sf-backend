@@ -1,11 +1,13 @@
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from sqlalchemy import inspect, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, upgrade_contact_photo_schema
 from app.models import Contact
+from app.database import _backfill_legacy_addresses
 
 
 def test_photo_schema_upgrade_preserves_a_valid_legacy_data_url():
@@ -75,3 +77,148 @@ def test_photo_schema_upgrade_preserves_a_valid_legacy_data_url():
         contact = session.get(Contact, 1)
         assert contact is not None
         assert contact.photo_data == newer_photo
+
+
+def test_legacy_addresses_are_backfilled_once_without_losing_values(tmp_path):
+    legacy_engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'legacy.db'}")
+    with legacy_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE contacts (
+                    id INTEGER PRIMARY KEY,
+                    first_name VARCHAR(100) NOT NULL,
+                    last_name VARCHAR(100) NOT NULL,
+                    email VARCHAR(320) NOT NULL,
+                    address VARCHAR(300),
+                    city VARCHAR(120),
+                    state VARCHAR(120),
+                    postal_code VARCHAR(20),
+                    country VARCHAR(120)
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO contacts
+                    (id, first_name, last_name, email, address, city, state, postal_code, country)
+                VALUES
+                    (1, 'Ada', 'Lovelace', 'ada@example.com', '1 Market St', 'San Francisco',
+                     'CA', '94105', 'USA'),
+                    (2, 'Grace', 'Hopper', 'grace@example.com', NULL, '  ', NULL, '', NULL)
+                """
+            )
+        )
+
+    Base.metadata.create_all(bind=legacy_engine)
+    upgrade_contact_photo_schema(legacy_engine)
+    _backfill_legacy_addresses(legacy_engine)
+    _backfill_legacy_addresses(legacy_engine)
+
+    assert "addresses" in inspect(legacy_engine).get_table_names()
+    assert {"photo_data", "photo_content_type"} <= {
+        column["name"] for column in inspect(legacy_engine).get_columns("contacts")
+    }
+    with legacy_engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                """
+                SELECT contact_id, type, address, city, state, postal_code, country
+                FROM addresses ORDER BY id
+                """
+            )
+        ).all()
+        contacts = connection.scalar(text("SELECT COUNT(*) FROM contacts"))
+
+    assert contacts == 2
+    assert rows == [(1, "Home", "1 Market St", "San Francisco", "CA", "94105", "USA")]
+
+
+def test_backfill_does_not_duplicate_a_contact_that_already_has_an_address(tmp_path):
+    legacy_engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'existing.db'}")
+    with legacy_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE contacts (
+                    id INTEGER PRIMARY KEY,
+                    first_name VARCHAR(100) NOT NULL,
+                    last_name VARCHAR(100) NOT NULL,
+                    email VARCHAR(320) NOT NULL,
+                    address VARCHAR(300),
+                    city VARCHAR(120),
+                    state VARCHAR(120),
+                    postal_code VARCHAR(20),
+                    country VARCHAR(120)
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO contacts
+                    (id, first_name, last_name, email, address, city, state, country)
+                VALUES (1, 'Ada', 'Lovelace', 'ada@example.com', 'Legacy St', 'London',
+                        'London', 'UK')
+                """
+            )
+        )
+
+    Base.metadata.create_all(bind=legacy_engine)
+    with legacy_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO addresses (contact_id, type, address)
+                VALUES (1, 'Work', 'Current St')
+                """
+            )
+        )
+
+    _backfill_legacy_addresses(legacy_engine)
+
+    with legacy_engine.connect() as connection:
+        rows = connection.execute(
+            text("SELECT type, address FROM addresses WHERE contact_id = 1")
+        ).all()
+    assert rows == [("Work", "Current St")]
+
+
+def test_concurrent_legacy_backfill_does_not_duplicate_rows(tmp_path):
+    legacy_engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'concurrent.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    with legacy_engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE contacts (
+                    id INTEGER PRIMARY KEY,
+                    address VARCHAR(300),
+                    city VARCHAR(120),
+                    state VARCHAR(120),
+                    postal_code VARCHAR(20),
+                    country VARCHAR(120)
+                )
+                """
+            )
+        )
+        connection.execute(
+            text("INSERT INTO contacts (id, city, country) VALUES (1, 'London', 'UK')")
+        )
+
+    Base.metadata.create_all(bind=legacy_engine)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        futures = [
+            workers.submit(_backfill_legacy_addresses, legacy_engine) for _ in range(2)
+        ]
+        for future in futures:
+            future.result(timeout=5)
+
+    with legacy_engine.connect() as connection:
+        count = connection.scalar(text("SELECT COUNT(*) FROM addresses"))
+    assert count == 1
