@@ -77,8 +77,8 @@ The same code runs unchanged against Postgres (`postgresql+psycopg://...`).
 
 ### Configuration
 
-All settings are environment variables prefixed with `CONTACTS_` (a `.env` file is
-also read):
+All settings are environment variables prefixed with `CONTACTS_` (`.env` and
+ignored `.env.local` files are also read):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -87,6 +87,14 @@ also read):
 | `CONTACTS_HOST` | `127.0.0.1` | Bind address |
 | `CONTACTS_PORT` | `8000` | Bind port |
 | `CONTACTS_SQL_ECHO` | `false` | Log every SQL statement |
+| `CONTACTS_IMAGE_ENDPOINT` | – | Azure OpenAI base endpoint |
+| `CONTACTS_IMAGE_API_KEY` | – | Server-only image API key |
+| `CONTACTS_IMAGE_DEPLOYMENT` | `gpt-image-2` | Image deployment name |
+| `CONTACTS_IMAGE_API_VERSION` | `2025-04-01-preview` | Images API version |
+| `CONTACTS_IMAGE_SIZE` | `1024x1024` | Generated avatar dimensions |
+| `CONTACTS_IMAGE_QUALITY` | `medium` | `low`, `medium`, or `high` |
+| `CONTACTS_IMAGE_OUTPUT_FORMAT` | `jpeg` | Stored image format (`jpeg` or `png`) |
+| `CONTACTS_IMAGE_TIMEOUT_SECONDS` | `240` | Upstream request timeout |
 
 ## API
 
@@ -99,6 +107,7 @@ also read):
 | `GET` | `/api/v1/contacts/{id}` | Fetch one contact |
 | `PUT` | `/api/v1/contacts/{id}` | Full replace (omitted fields are cleared) |
 | `PATCH` | `/api/v1/contacts/{id}` | Partial update (only sent fields change) |
+| `POST` | `/api/v1/contacts/{id}/generate-avatar` | Generate and store a cartoon avatar |
 | `DELETE` | `/api/v1/contacts/{id}` | Delete → `204` |
 | `PUT` | `/api/v1/contacts/{id}/photo` | Upload or replace a photo |
 | `GET` | `/api/v1/contacts/{id}/photo` | Download the stored photo |
@@ -110,7 +119,7 @@ also read):
 (case-insensitive). Everything else is optional.
 
 ```
-first_name, last_name, email, phone, company, job_title, addresses, notes
+first_name, last_name, email, phone, company, job_title, gender, addresses, notes
 ```
 
 Responses add `id`, `full_name`, `created_at`, `updated_at` (UTC), and
@@ -157,6 +166,18 @@ returns FastAPI's standard `422` request-validation response.
 existing contact, and does not delete the contact. JSON `POST`, `PUT`, and
 `PATCH` contact payloads intentionally reject a `photo` field: upload,
 replacement, and removal are explicit operations.
+
+### Generated cartoon avatars
+
+`POST /api/v1/contacts/{id}/generate-avatar` sends the stored photo to the
+configured GPT-Image-2 edit deployment and replaces it only after a valid result
+returns. The prompt creates an original yellow animated-sitcom portrait without
+copying existing characters, show branding, or a living artist's style.
+
+`gender` accepts `male`, `female`, or `unknown`. Unknown chooses a randomized
+androgynous direction on each request. A source photo is required; failed
+generation leaves it untouched. Copy `.env.local.example` to `.env.local` and
+set the server-only Azure values before using the endpoint.
 
 ### List query parameters
 

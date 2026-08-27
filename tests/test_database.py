@@ -5,9 +5,14 @@ from pathlib import Path
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
-from app.database import Base, engine, upgrade_contact_photo_schema
+from app.database import (
+    Base,
+    _add_contact_gender_column,
+    _backfill_legacy_addresses,
+    engine,
+    upgrade_contact_photo_schema,
+)
 from app.models import Contact
-from app.database import _backfill_legacy_addresses
 
 
 def test_photo_schema_upgrade_preserves_a_valid_legacy_data_url():
@@ -52,6 +57,8 @@ def test_photo_schema_upgrade_preserves_a_valid_legacy_data_url():
 
     upgrade_contact_photo_schema(engine)
     upgrade_contact_photo_schema(engine)
+    _add_contact_gender_column(engine)
+    Base.metadata.tables["addresses"].create(bind=engine)
 
     columns = {column["name"] for column in inspect(engine).get_columns("contacts")}
     assert {"photo", "photo_data", "photo_content_type"} <= columns
@@ -77,6 +84,31 @@ def test_photo_schema_upgrade_preserves_a_valid_legacy_data_url():
         contact = session.get(Contact, 1)
         assert contact is not None
         assert contact.photo_data == newer_photo
+
+
+def test_gender_column_is_added_and_backfilled_on_an_existing_contacts_table(
+    tmp_path,
+):
+    legacy_engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'contacts.db'}")
+    with legacy_engine.begin() as connection:
+        connection.execute(
+            text("CREATE TABLE contacts (id INTEGER PRIMARY KEY, first_name VARCHAR(100))")
+        )
+        connection.execute(
+            text("INSERT INTO contacts (id, first_name) VALUES (1, 'Ada')")
+        )
+
+    _add_contact_gender_column(legacy_engine)
+    _add_contact_gender_column(legacy_engine)
+
+    columns = {
+        column["name"] for column in inspect(legacy_engine).get_columns("contacts")
+    }
+    assert "gender" in columns
+    with legacy_engine.connect() as connection:
+        assert connection.scalar(
+            text("SELECT gender FROM contacts WHERE id = 1")
+        ) == "unknown"
 
 
 def test_legacy_addresses_are_backfilled_once_without_losing_values(tmp_path):

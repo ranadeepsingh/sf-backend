@@ -21,6 +21,7 @@ from app.address import (
     STATE_MAX_LENGTH,
 )
 from app.database import Base
+from app.gender import GENDER_VALUES, Gender
 
 
 def _utcnow() -> datetime:
@@ -29,6 +30,12 @@ def _utcnow() -> datetime:
 
 class Contact(Base):
     __tablename__ = "contacts"
+    __table_args__ = (
+        CheckConstraint(
+            f"gender IN ({', '.join(repr(value) for value in GENDER_VALUES)})",
+            name="ck_contacts_gender",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
@@ -39,6 +46,12 @@ class Contact(Base):
 
     company: Mapped[str | None] = mapped_column(String(200))
     job_title: Mapped[str | None] = mapped_column(String(200))
+    gender: Mapped[str] = mapped_column(
+        String(7),
+        nullable=False,
+        default=Gender.UNKNOWN.value,
+        server_default=Gender.UNKNOWN.value,
+    )
 
     notes: Mapped[str | None] = mapped_column(Text)
     photo_data: Mapped[bytes | None] = mapped_column(LargeBinary)

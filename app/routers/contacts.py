@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app import crud
+from app import avatar, crud
+from app.config import Settings, get_settings
 from app.database import get_db
+from app.gender import Gender
 from app.models import Contact
 from app.photo import ImageValidationError, MAX_IMAGE_BYTES, SUPPORTED_MEDIA_TYPES, validate_image_bytes
 from app.schemas import (
@@ -70,6 +72,24 @@ async def _read_validated_photo(file: UploadFile) -> tuple[bytes, str]:
         )
         raise HTTPException(status_code, str(error)) from error
     return bytes(data), verified_content_type
+
+AVATAR_REQUIRES_PHOTO = {
+    "model": ErrorResponse,
+    "description": "The contact has no source photo to transform.",
+    "content": {
+        "application/json": {
+            "example": {"detail": "Add a contact photo before generating an avatar."}
+        }
+    },
+}
+AVATAR_GENERATION_FAILED = {
+    "model": ErrorResponse,
+    "description": "The configured image service could not generate an avatar.",
+}
+AVATAR_NOT_CONFIGURED = {
+    "model": ErrorResponse,
+    "description": "The server image-generation configuration is unavailable.",
+}
 
 
 def _get_or_404(db: Session, contact_id: int) -> Contact:
@@ -237,6 +257,65 @@ def remove_contact_photo(contact_id: int = CONTACT_ID, db: Session = Depends(get
 def get_contact(contact_id: int = CONTACT_ID, db: Session = Depends(get_db)) -> Contact:
     """Fetch a single contact by its id."""
     return _get_or_404(db, contact_id)
+
+
+@router.post(
+    "/{contact_id}/generate-avatar",
+    response_model=ContactRead,
+    operation_id="generateContactAvatar",
+    summary="Generate a cartoon contact avatar",
+    response_description="The contact with its generated avatar stored as the photo.",
+    responses={
+        status.HTTP_404_NOT_FOUND: NOT_FOUND,
+        status.HTTP_409_CONFLICT: AVATAR_REQUIRES_PHOTO,
+        status.HTTP_502_BAD_GATEWAY: AVATAR_GENERATION_FAILED,
+        status.HTTP_503_SERVICE_UNAVAILABLE: AVATAR_NOT_CONFIGURED,
+    },
+)
+def generate_contact_avatar(
+    contact_id: int = CONTACT_ID,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> Contact:
+    """
+    Transform the contact's stored photo into an original animated-sitcom avatar.
+
+    Gender controls presentation guidance; `unknown` uses a randomized,
+    androgynous direction. The original photo remains unchanged if generation
+    fails, and image-service credentials never leave the backend.
+    """
+    contact = _get_or_404(db, contact_id)
+    if contact.photo_data is None or contact.photo_content_type is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Add a contact photo before generating an avatar.",
+        )
+
+    try:
+        generated = avatar.generate_avatar(
+            contact.photo_data,
+            contact.photo_content_type,
+            Gender(contact.gender),
+            settings,
+        )
+    except avatar.AvatarConfigurationError as error:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Avatar generation configuration is unavailable.",
+        ) from error
+    except avatar.AvatarGenerationError as error:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Avatar generation failed. Try again.",
+        ) from error
+
+    image, content_type = generated
+    return crud.replace_contact_photo(
+        db,
+        contact,
+        data=image,
+        content_type=content_type,
+    )
 
 
 @router.put(
