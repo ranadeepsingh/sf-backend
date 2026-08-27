@@ -2,6 +2,7 @@ from collections.abc import Generator
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -59,8 +60,27 @@ def _add_contact_photo_column(bind: Engine) -> None:
     if "photo" in columns:
         return
 
-    with bind.begin() as connection:
-        connection.execute(text("ALTER TABLE contacts ADD COLUMN photo TEXT"))
+    try:
+        with bind.begin() as connection:
+            connection.execute(text("ALTER TABLE contacts ADD COLUMN photo TEXT"))
+    except DBAPIError as error:
+        if not _is_duplicate_photo_column_error(error, bind.dialect.name):
+            raise
+
+        columns = {column["name"] for column in inspect(bind).get_columns("contacts")}
+        if "photo" not in columns:
+            raise
+
+
+def _is_duplicate_photo_column_error(error: DBAPIError, dialect_name: str) -> bool:
+    if dialect_name == "postgresql":
+        return (
+            getattr(error.orig, "sqlstate", None) == "42701"
+            or getattr(error.orig, "pgcode", None) == "42701"
+        )
+    if dialect_name == "sqlite":
+        return str(error.orig).casefold() == "duplicate column name: photo"
+    return False
 
 
 def get_db() -> Generator[Session, None, None]:
