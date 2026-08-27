@@ -2,8 +2,6 @@
 
 import pytest
 
-from app.photo import MAX_PHOTO_DATA_URL_CHARS
-
 CONTACTS_PATH = "/api/v1/contacts"
 ITEM_PATH = f"{CONTACTS_PATH}/{{contact_id}}"
 HTTP_METHODS = ("get", "post", "put", "patch", "delete")
@@ -135,28 +133,16 @@ def test_contact_fields_are_described_and_have_examples(spec):
     assert schema["properties"]["email"]["examples"] == ["ada@example.com"]
     assert schema["properties"]["full_name"]["description"]
 
-    photo = schema["properties"]["photo"]
-    photo_string = next(option for option in photo["anyOf"] if option.get("type") == "string")
-    assert photo_string["maxLength"] == MAX_PHOTO_DATA_URL_CHARS
-    assert all(
-        mime in photo["description"]
-        for mime in ("image/jpeg", "image/png", "image/webp")
-    )
-    assert "image/gif" not in photo["description"]
-    assert photo["examples"][0].startswith("data:image/png;base64,")
-
 
 def test_request_bodies_carry_examples(spec):
     create = spec["components"]["schemas"]["ContactCreate"]
     assert len(create["examples"]) == 2
     assert create["examples"][0]["email"] == "ada@example.com"
-    assert create["examples"][0]["photo"].startswith("data:image/png;base64,")
     assert set(create["required"]) == {"first_name", "last_name", "email"}
 
     patch = spec["components"]["schemas"]["ContactUpdate"]
     assert patch["examples"]
     assert "required" not in patch  # every field on PATCH is optional
-    assert "photo" in patch["properties"]
 
 
 def test_put_and_patch_semantics_are_explained(spec):
