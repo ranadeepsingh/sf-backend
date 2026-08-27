@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import DateTime, Integer, LargeBinary, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -30,6 +30,8 @@ class Contact(Base):
     country: Mapped[str | None] = mapped_column(String(120))
 
     notes: Mapped[str | None] = mapped_column(Text)
+    photo_data: Mapped[bytes | None] = mapped_column(LargeBinary)
+    photo_content_type: Mapped[str | None] = mapped_column(String(100))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, server_default=func.now(), nullable=False
@@ -45,6 +47,10 @@ class Contact(Base):
     @property
     def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}".strip()
+
+    @property
+    def photo_url(self) -> str | None:
+        return f"/api/v1/contacts/{self.id}/photo" if self.photo_data is not None else None
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<Contact id={self.id} email={self.email!r}>"

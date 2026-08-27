@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app import crud
 from app.database import get_db
 from app.models import Contact
+from app.photo import ImageValidationError, MAX_IMAGE_BYTES, SUPPORTED_MEDIA_TYPES, validate_image_bytes
 from app.schemas import (
     ContactCreate,
     ContactPage,
@@ -27,6 +28,48 @@ EMAIL_CONFLICT = {
     "description": "Another contact already uses that email address.",
     "content": {"application/json": {"example": {"detail": "Email ada@example.com is already in use"}}},
 }
+PHOTO_NOT_FOUND = {
+    "model": ErrorResponse,
+    "description": "The contact does not have a stored photo.",
+    "content": {"application/json": {"example": {"detail": "Contact 42 has no photo"}}},
+}
+INVALID_PHOTO = {
+    "model": ErrorResponse,
+    "description": "The file is missing, unsupported, invalid, or exceeds a safety limit.",
+}
+
+
+async def _read_validated_photo(file: UploadFile) -> tuple[bytes, str]:
+    content_type = (file.content_type or "").lower()
+    if content_type not in SUPPORTED_MEDIA_TYPES.values():
+        await file.close()
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            "Photo Content-Type must be image/jpeg, image/png, or image/webp.",
+        )
+
+    data = bytearray()
+    try:
+        while chunk := await file.read(64 * 1024):
+            if len(data) + len(chunk) > MAX_IMAGE_BYTES:
+                raise HTTPException(
+                    status.HTTP_413_CONTENT_TOO_LARGE,
+                    f"Photo exceeds the {MAX_IMAGE_BYTES // (1024 * 1024)} MiB limit.",
+                )
+            data.extend(chunk)
+    finally:
+        await file.close()
+
+    try:
+        verified_content_type = validate_image_bytes(bytes(data), declared_content_type=content_type)
+    except ImageValidationError as error:
+        status_code = (
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+            if error.media_type_error
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
+        )
+        raise HTTPException(status_code, str(error)) from error
+    return bytes(data), verified_content_type
 
 
 def _get_or_404(db: Session, contact_id: int) -> Contact:
@@ -106,6 +149,81 @@ def list_contacts(
         limit=limit,
         offset=offset,
     )
+
+
+@router.put(
+    "/{contact_id}/photo",
+    response_model=ContactRead,
+    operation_id="replaceContactPhoto",
+    summary="Upload or replace a contact photo",
+    response_description="The contact with its photo URL.",
+    responses={
+        status.HTTP_404_NOT_FOUND: NOT_FOUND,
+        status.HTTP_413_CONTENT_TOO_LARGE: INVALID_PHOTO,
+        status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: INVALID_PHOTO,
+        status.HTTP_422_UNPROCESSABLE_CONTENT: INVALID_PHOTO,
+    },
+)
+async def replace_contact_photo(
+    file: UploadFile = File(
+        description="JPEG, PNG, or WebP image up to 2 MiB. Its Content-Type must match its image bytes."
+    ),
+    contact_id: int = CONTACT_ID,
+    db: Session = Depends(get_db),
+) -> Contact:
+    """
+    Store a photo from browser `multipart/form-data`.
+
+    This replaces the entire existing photo. JSON contact endpoints deliberately
+    do not accept photo data; use `DELETE /{contact_id}/photo` to remove it.
+    """
+    contact = _get_or_404(db, contact_id)
+    data, content_type = await _read_validated_photo(file)
+    return crud.replace_contact_photo(db, contact, data=data, content_type=content_type)
+
+
+@router.get(
+    "/{contact_id}/photo",
+    response_class=Response,
+    operation_id="getContactPhoto",
+    summary="Download a contact photo",
+    response_description="The image bytes in their stored media type.",
+    responses={
+        status.HTTP_200_OK: {
+            "description": "The stored photo.",
+            "content": {"image/jpeg": {}, "image/png": {}, "image/webp": {}},
+        },
+        status.HTTP_404_NOT_FOUND: PHOTO_NOT_FOUND,
+    },
+)
+def get_contact_photo(contact_id: int = CONTACT_ID, db: Session = Depends(get_db)) -> Response:
+    """Return the original validated image bytes for a contact."""
+    contact = _get_or_404(db, contact_id)
+    if contact.photo_data is None or contact.photo_content_type is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Contact {contact_id} has no photo")
+    return Response(
+        content=contact.photo_data,
+        media_type=contact.photo_content_type,
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.delete(
+    "/{contact_id}/photo",
+    status_code=status.HTTP_204_NO_CONTENT,
+    operation_id="removeContactPhoto",
+    summary="Remove a contact photo",
+    response_description="The photo was removed; this is idempotent for an existing contact.",
+    responses={
+        status.HTTP_204_NO_CONTENT: {"description": "The photo was removed; the response has no body."},
+        status.HTTP_404_NOT_FOUND: NOT_FOUND,
+    },
+)
+def remove_contact_photo(contact_id: int = CONTACT_ID, db: Session = Depends(get_db)) -> Response:
+    """Remove any stored photo while preserving the contact."""
+    contact = _get_or_404(db, contact_id)
+    crud.remove_contact_photo(db, contact)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get(

@@ -100,6 +100,9 @@ also read):
 | `PUT` | `/api/v1/contacts/{id}` | Full replace (omitted fields are cleared) |
 | `PATCH` | `/api/v1/contacts/{id}` | Partial update (only sent fields change) |
 | `DELETE` | `/api/v1/contacts/{id}` | Delete → `204` |
+| `PUT` | `/api/v1/contacts/{id}/photo` | Upload or replace a photo |
+| `GET` | `/api/v1/contacts/{id}/photo` | Download the stored photo |
+| `DELETE` | `/api/v1/contacts/{id}/photo` | Remove a photo → `204` |
 
 ### Contact fields
 
@@ -111,7 +114,25 @@ first_name, last_name, email, phone, company, job_title,
 address, city, state, postal_code, country, notes
 ```
 
-Responses add `id`, `full_name`, `created_at`, and `updated_at` (UTC).
+Responses add `id`, `full_name`, `created_at`, `updated_at` (UTC), and
+`photo_url`. `photo_url` is `null` until a photo is uploaded.
+
+### Contact photos
+
+Photos use a separate browser-friendly multipart endpoint rather than encoding
+large binary data in a JSON request. `PUT /api/v1/contacts/{id}/photo` accepts
+the multipart field named `file`, replaces any previous photo, and returns the
+updated contact. It accepts only JPEG, PNG, and WebP files up to 2 MiB. The
+declared part `Content-Type` must match the verified image bytes; malformed
+images return `422`, unsupported or mismatched types return `415`, and
+oversize files return `413`. Omitting the required multipart `file` field
+returns FastAPI's standard `422` request-validation response.
+
+`GET` on `photo_url` returns the original bytes and stored media type.
+`DELETE /api/v1/contacts/{id}/photo` removes the photo, is idempotent for an
+existing contact, and does not delete the contact. JSON `POST`, `PUT`, and
+`PATCH` contact payloads intentionally reject a `photo` field: upload,
+replacement, and removal are explicit operations.
 
 ### List query parameters
 
@@ -149,6 +170,14 @@ curl "http://127.0.0.1:8000/api/v1/contacts?search=nasa&limit=10&sort_by=last_na
 # Partial update
 curl -X PATCH http://127.0.0.1:8000/api/v1/contacts/1 \
   -H 'content-type: application/json' -d '{"phone":"+1-415-555-0000"}'
+
+# Upload or replace a photo from a browser-compatible multipart request
+curl -X PUT http://127.0.0.1:8000/api/v1/contacts/1/photo \
+  -F 'file=@Rana.png;type=image/png'
+
+# Download or remove a photo
+curl http://127.0.0.1:8000/api/v1/contacts/1/photo --output contact.png
+curl -X DELETE http://127.0.0.1:8000/api/v1/contacts/1/photo
 
 # Delete
 curl -X DELETE http://127.0.0.1:8000/api/v1/contacts/1

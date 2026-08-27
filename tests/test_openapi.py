@@ -4,6 +4,7 @@ import pytest
 
 CONTACTS_PATH = "/api/v1/contacts"
 ITEM_PATH = f"{CONTACTS_PATH}/{{contact_id}}"
+PHOTO_PATH = f"{ITEM_PATH}/photo"
 HTTP_METHODS = ("get", "post", "put", "patch", "delete")
 
 
@@ -68,6 +69,9 @@ def test_operation_ids_are_stable_and_unique(spec):
         "replaceContact",
         "updateContact",
         "deleteContact",
+        "replaceContactPhoto",
+        "getContactPhoto",
+        "removeContactPhoto",
         "healthCheck",
         "getRoot",
     }
@@ -76,6 +80,7 @@ def test_operation_ids_are_stable_and_unique(spec):
 def test_all_endpoints_are_present(spec):
     assert set(spec["paths"][CONTACTS_PATH]) == {"get", "post"}
     assert set(spec["paths"][ITEM_PATH]) == {"get", "put", "patch", "delete"}
+    assert set(spec["paths"][PHOTO_PATH]) == {"get", "put", "delete"}
     assert "/health" in spec["paths"]
 
 
@@ -148,3 +153,16 @@ def test_request_bodies_carry_examples(spec):
 def test_put_and_patch_semantics_are_explained(spec):
     assert "cleared" in spec["paths"][ITEM_PATH]["put"]["description"]
     assert "omit" in spec["paths"][ITEM_PATH]["patch"]["description"]
+
+
+def test_photo_upload_contract_is_documented(spec):
+    upload = spec["paths"][PHOTO_PATH]["put"]
+    media_type = upload["requestBody"]["content"]["multipart/form-data"]
+    schema_name = media_type["schema"]["$ref"].rsplit("/", 1)[-1]
+    assert spec["components"]["schemas"][schema_name]["properties"]["file"]["description"]
+    assert set(upload["responses"]) >= {"200", "404", "413", "415", "422"}
+    assert set(spec["paths"][PHOTO_PATH]["get"]["responses"]["200"]["content"]) == {
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+    }
