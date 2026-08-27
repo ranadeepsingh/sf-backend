@@ -4,7 +4,18 @@ import logging
 import re
 from collections.abc import Generator
 
-from sqlalchemy import LargeBinary, String, create_engine, event, inspect, text
+from sqlalchemy import (
+    LargeBinary,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    event,
+    inspect,
+    insert,
+    select,
+    text,
+)
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -132,6 +143,63 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     upgrade_contact_photo_schema()
+    _backfill_legacy_addresses(engine)
+
+
+def _backfill_legacy_addresses(bind: Engine) -> None:
+    """Move non-blank legacy contact address fields into the relation once."""
+    legacy_fields = ("address", "city", "state", "postal_code", "country")
+    inspector = inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("contacts")}
+    available_fields = [field for field in legacy_fields if field in columns]
+    if not available_fields or "addresses" not in inspector.get_table_names():
+        return
+
+    from app.address import ADDRESS_TYPES
+
+    with bind.connect() as connection:
+        try:
+            if bind.dialect.name == "sqlite":
+                connection.exec_driver_sql("BEGIN IMMEDIATE")
+            else:
+                connection.begin()
+                if bind.dialect.name == "postgresql":
+                    connection.execute(
+                        text("LOCK TABLE addresses IN SHARE ROW EXCLUSIVE MODE")
+                    )
+
+            metadata = MetaData()
+            contacts = Table("contacts", metadata, autoload_with=connection)
+            addresses = Table("addresses", metadata, autoload_with=connection)
+            selected = [contacts.c.id, *(contacts.c[field] for field in available_fields)]
+            rows = connection.execute(select(*selected)).mappings().all()
+            existing_ids = set(connection.scalars(select(addresses.c.contact_id)))
+
+            values = []
+            for row in rows:
+                address_values = {
+                    field: row[field] if field in available_fields else None
+                    for field in legacy_fields
+                }
+                if row["id"] in existing_ids or not any(
+                    isinstance(value, str) and value.strip()
+                    for value in address_values.values()
+                ):
+                    continue
+                values.append(
+                    {
+                        "contact_id": row["id"],
+                        "type": ADDRESS_TYPES[0],
+                        **address_values,
+                    }
+                )
+
+            if values:
+                connection.execute(insert(addresses), values)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
 
 
 def get_db() -> Generator[Session, None, None]:

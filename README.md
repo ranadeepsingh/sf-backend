@@ -110,12 +110,36 @@ also read):
 (case-insensitive). Everything else is optional.
 
 ```
-first_name, last_name, email, phone, company, job_title,
-address, city, state, postal_code, country, notes
+first_name, last_name, email, phone, company, job_title, addresses, notes
 ```
 
 Responses add `id`, `full_name`, `created_at`, `updated_at` (UTC), and
 `photo_url`. `photo_url` is `null` until a photo is uploaded.
+
+### Contact addresses
+
+`addresses` is a list. Each item requires a case-sensitive `type` of `Home`,
+`Work`, or `Other`, plus at least one of `address`, `city`, `state`,
+`postal_code`, or `country`. Responses add an `id` to every address.
+
+```json
+{
+  "addresses": [
+    {
+      "type": "Work",
+      "address": "1 Market St",
+      "city": "San Francisco",
+      "state": "CA",
+      "postal_code": "94105",
+      "country": "USA"
+    }
+  ]
+}
+```
+
+`PATCH` preserves addresses when omitted, replaces the full list when provided,
+and clears the list when sent as `null`. `PUT` is a full replacement, so omitting
+`addresses` clears it.
 
 ### Contact photos
 
@@ -162,7 +186,8 @@ List responses are wrapped so clients can paginate:
 curl -X POST http://127.0.0.1:8000/api/v1/contacts \
   -H 'content-type: application/json' \
   -d '{"first_name":"Katherine","last_name":"Johnson","email":"katherine@example.com",
-       "phone":"+1-757-555-0199","company":"NASA","job_title":"Mathematician"}'
+       "phone":"+1-757-555-0199","company":"NASA","job_title":"Mathematician",
+       "addresses":[{"type":"Work","city":"Hampton","state":"VA","country":"USA"}]}'
 
 # Search + paginate
 curl "http://127.0.0.1:8000/api/v1/contacts?search=nasa&limit=10&sort_by=last_name"
@@ -199,7 +224,8 @@ app/
   main.py             FastAPI app, lifespan startup, /health and /
   config.py           Environment-driven settings
   database.py         Engine, session factory, StaticPool in-memory wiring
-  models.py           Contact ORM model
+  address.py          Shared address types and limits
+  models.py           Contact and address ORM models
   schemas.py          Pydantic request/response models
   crud.py             Database operations (search, sort, paginate)
   seed.py             Sample contacts for the in-memory default
