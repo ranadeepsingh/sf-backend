@@ -18,6 +18,7 @@ from app.address import (
     STATE_MAX_LENGTH,
     AddressType,
 )
+from app.gender import Gender
 
 class AddressInput(BaseModel):
     """An address supplied while creating or updating a contact."""
@@ -111,6 +112,14 @@ class ContactBase(BaseModel):
         description="Role held at the company.",
         examples=["Mathematician"],
     )
+    gender: Gender = Field(
+        default=Gender.UNKNOWN,
+        description=(
+            "Gender presentation used to guide generated avatars. Unknown produces "
+            "a randomized, androgynous result."
+        ),
+        examples=["unknown"],
+    )
     addresses: list[AddressInput] = Field(
         default_factory=list,
         description="Addresses for this contact, in server-assigned id order.",
@@ -129,6 +138,7 @@ _FULL_EXAMPLE = {
     "phone": "+1-415-555-0101",
     "company": "Analytical Engines",
     "job_title": "Mathematician",
+    "gender": "female",
     "addresses": [
         {
             "type": "Home",
@@ -185,6 +195,13 @@ class ContactUpdate(BaseModel):
     phone: str | None = Field(default=None, max_length=40, description="New phone number.")
     company: str | None = Field(default=None, max_length=200, description="New company.")
     job_title: str | None = Field(default=None, max_length=200, description="New job title.")
+    gender: Gender = Field(
+        default=Gender.UNKNOWN,
+        description=(
+            "New avatar gender guidance. Omit to preserve the stored value; null "
+            "is not accepted."
+        ),
+    )
     addresses: list[AddressInput] | None = Field(
         default=None,
         description=(

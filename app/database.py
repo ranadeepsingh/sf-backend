@@ -143,7 +143,31 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     upgrade_contact_photo_schema()
+    _add_contact_gender_column(engine)
     _backfill_legacy_addresses(engine)
+
+
+def _add_contact_gender_column(bind: Engine) -> None:
+    """Add and backfill gender for databases created before this feature."""
+    columns = {column["name"] for column in inspect(bind).get_columns("contacts")}
+    if "gender" in columns:
+        return
+
+    try:
+        with bind.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE contacts ADD COLUMN gender "
+                    "VARCHAR(7) NOT NULL DEFAULT 'unknown'"
+                )
+            )
+    except DBAPIError as error:
+        if not _is_duplicate_column_error(error):
+            raise
+
+        columns = {column["name"] for column in inspect(bind).get_columns("contacts")}
+        if "gender" not in columns:
+            raise
 
 
 def _backfill_legacy_addresses(bind: Engine) -> None:

@@ -5,6 +5,8 @@ venv/
 *.egg-info/
 .pytest_cache/
 .env
+.env.local
+.env.*.local
 *.db
 .idea/
 .DS_Store

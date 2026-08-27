@@ -5,6 +5,7 @@ import pytest
 CONTACTS_PATH = "/api/v1/contacts"
 ITEM_PATH = f"{CONTACTS_PATH}/{{contact_id}}"
 PHOTO_PATH = f"{ITEM_PATH}/photo"
+AVATAR_PATH = f"{ITEM_PATH}/generate-avatar"
 HTTP_METHODS = ("get", "post", "put", "patch", "delete")
 
 
@@ -72,6 +73,7 @@ def test_operation_ids_are_stable_and_unique(spec):
         "replaceContactPhoto",
         "getContactPhoto",
         "removeContactPhoto",
+        "generateContactAvatar",
         "healthCheck",
         "getRoot",
     }
@@ -81,6 +83,7 @@ def test_all_endpoints_are_present(spec):
     assert set(spec["paths"][CONTACTS_PATH]) == {"get", "post"}
     assert set(spec["paths"][ITEM_PATH]) == {"get", "put", "patch", "delete"}
     assert set(spec["paths"][PHOTO_PATH]) == {"get", "put", "delete"}
+    assert set(spec["paths"][AVATAR_PATH]) == {"post"}
     assert "/health" in spec["paths"]
 
 
