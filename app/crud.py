@@ -85,6 +85,22 @@ def update_contact(db: Session, contact: Contact, payload: ContactUpdate) -> Con
     return contact
 
 
+def replace_contact_photo(
+    db: Session, contact: Contact, *, data: bytes, content_type: str
+) -> Contact:
+    contact.photo_data = data
+    contact.photo_content_type = content_type
+    db.commit()
+    db.refresh(contact)
+    return contact
+
+
+def remove_contact_photo(db: Session, contact: Contact) -> None:
+    contact.photo_data = None
+    contact.photo_content_type = None
+    db.commit()
+
+
 def delete_contact(db: Session, contact: Contact) -> None:
     db.delete(contact)
     db.commit()

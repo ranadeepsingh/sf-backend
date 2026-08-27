@@ -91,7 +91,7 @@ _MINIMAL_EXAMPLE = {"first_name": "Grace", "last_name": "Hopper", "email": "grac
 class ContactCreate(ContactBase):
     """Body of `POST /api/v1/contacts`. Only the two names and email are required."""
 
-    model_config = ConfigDict(json_schema_extra={"examples": [_FULL_EXAMPLE, _MINIMAL_EXAMPLE]})
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [_FULL_EXAMPLE, _MINIMAL_EXAMPLE]})
 
 
 class ContactReplace(ContactBase):
@@ -102,7 +102,7 @@ class ContactReplace(ContactBase):
     Use `PATCH` if you only want to change some fields.
     """
 
-    model_config = ConfigDict(json_schema_extra={"examples": [_FULL_EXAMPLE]})
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [_FULL_EXAMPLE]})
 
 
 class ContactUpdate(BaseModel):
@@ -115,6 +115,7 @@ class ContactUpdate(BaseModel):
     """
 
     model_config = ConfigDict(
+        extra="forbid",
         json_schema_extra={"examples": [{"phone": "+1-415-555-0199", "job_title": "Chief Engineer"}]}
     )
 
@@ -162,6 +163,13 @@ class ContactRead(ContactBase):
     updated_at: datetime = Field(
         description="UTC timestamp of the last modification.",
         examples=["2026-08-19T16:22:58.189511Z"],
+    )
+    photo_url: str | None = Field(
+        description=(
+            "Relative URL for the contact's uploaded photo, or null when no photo is stored. "
+            "Upload or replace it with PUT on this URL; remove it with DELETE."
+        ),
+        examples=["/api/v1/contacts/1/photo"],
     )
 
     @field_validator("created_at", "updated_at")

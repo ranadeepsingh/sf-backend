@@ -28,7 +28,8 @@ URL to persist it.
 
 ### Conventions
 
-* All request and response bodies are JSON.
+* Contact request and response bodies are JSON. Photo replacement is the
+  `multipart/form-data` endpoint `PUT /api/v1/contacts/{id}/photo`.
 * Timestamps are ISO 8601 in UTC.
 * Errors return `{"detail": "..."}`; request-validation failures (`422`) return
   FastAPI's standard `HTTPValidationError` shape.
@@ -75,7 +76,7 @@ app = FastAPI(
     summary="Self-contained Contacts REST API backed by an in-memory database.",
     description=API_DESCRIPTION,
     openapi_tags=TAGS_METADATA,
-    contact={"name": "sf-backend", "url": "https://github.com/David-Parry/sf-backend"},
+    contact={"name": "sf-backend", "url": "https://github.com/ranadeepsingh/sf-backend"},
     license_info={"name": "MIT", "identifier": "MIT"},
     servers=[{"url": "/", "description": "This server"}],
     lifespan=lifespan,
